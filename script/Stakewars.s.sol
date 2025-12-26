@@ -1,19 +1,19 @@
-// // SPDX-License-Identifier: UNLICENSED
-// pragma solidity ^0.8.13;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
 
-// import {Script} from "forge-std/Script.sol";
-// import {Counter} from "../src/Counter.sol";
+import {Script} from "forge-std/Script.sol";
+import {Stakewars} from "../src/Stakewars.sol";
 
-// contract CounterScript is Script {
-//     Counter public counter;
+contract StakewarsScript is Script {
+    Stakewars public stakewars;
 
-//     function setUp() public {}
+    function setUp() public {}
 
-//     function run() public {
-//         vm.startBroadcast();
+    function run() public {
+        vm.startBroadcast();
 
-//         counter = new Counter();
+        stakewars = new Stakewars();
 
-//         vm.stopBroadcast();
-//     }
-// }
+        vm.stopBroadcast();
+    }
+}
