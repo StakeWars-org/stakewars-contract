@@ -704,4 +704,164 @@ contract StakewarsTest is Test {
         assertEq(stakewars.getBuffStatus(user1, 1, 1), leafTurns);
         assertEq(stakewars.getBuffStatus(user2, 6, 1), sandTurns);
     }
+    
+    // ============ Unit Tests: getCharactersOwnedByUser ============
+    
+    function test_GetCharactersOwnedByUser_NoCharacters() public {
+        uint256[] memory characters = stakewars.getCharactersOwnedByUser(user1);
+        assertEq(characters.length, 0);
+    }
+    
+    function test_GetCharactersOwnedByUser_SingleCharacter() public {
+        stakewars.mintCharacter(user1, 1);
+        
+        uint256[] memory characters = stakewars.getCharactersOwnedByUser(user1);
+        assertEq(characters.length, 1);
+        assertEq(characters[0], 1);
+    }
+    
+    function test_GetCharactersOwnedByUser_MultipleCharacters() public {
+        // Mint multiple characters to user1
+        stakewars.mintCharacter(user1, 1);
+        stakewars.mintCharacter(user2, 2); // Different user
+        stakewars.mintChakra(user1);
+        vm.prank(user1);
+        stakewars.setApprovalForAll(address(stakewars), true);
+        vm.prank(user1);
+        stakewars.mintCharacterWithChakra(3, 100 * 10 ** CHAKRA_DECIMALS);
+        
+        uint256[] memory characters = stakewars.getCharactersOwnedByUser(user1);
+        assertEq(characters.length, 2);
+        // Check that both characters are in the array
+        bool found1 = false;
+        bool found3 = false;
+        for (uint256 i = 0; i < characters.length; i++) {
+            if (characters[i] == 1) found1 = true;
+            if (characters[i] == 3) found3 = true;
+        }
+        assertTrue(found1);
+        assertTrue(found3);
+    }
+    
+    function test_GetCharactersOwnedByUser_DifferentVillages() public {
+        // Mint characters from different villages
+        stakewars.mintCharacter(user1, 1); // Hidden Leaf
+        stakewars.mintChakra(user1);
+        vm.prank(user1);
+        stakewars.setApprovalForAll(address(stakewars), true);
+        vm.prank(user1);
+        stakewars.mintCharacterWithChakra(6, 100 * 10 ** CHAKRA_DECIMALS); // Hidden Sand
+        vm.prank(user1);
+        stakewars.mintCharacterWithChakra(11, 100 * 10 ** CHAKRA_DECIMALS); // Hidden Mist
+        
+        uint256[] memory characters = stakewars.getCharactersOwnedByUser(user1);
+        assertEq(characters.length, 3);
+        
+        // Verify all three characters are present
+        bool found1 = false;
+        bool found6 = false;
+        bool found11 = false;
+        for (uint256 i = 0; i < characters.length; i++) {
+            if (characters[i] == 1) found1 = true;
+            if (characters[i] == 6) found6 = true;
+            if (characters[i] == 11) found11 = true;
+        }
+        assertTrue(found1);
+        assertTrue(found6);
+        assertTrue(found11);
+    }
+    
+    function test_GetCharactersOwnedByUser_AllCharacters() public {
+        // Mint all 20 characters to different users, then transfer some to user1
+        for (uint256 i = 1; i <= 20; i++) {
+            address tempUser = address(uint160(1000 + i));
+            stakewars.mintCharacter(tempUser, i);
+            // Transfer first 10 to user1
+            if (i <= 10) {
+                vm.prank(tempUser);
+                stakewars.setApprovalForAll(user1, true);
+                vm.prank(tempUser);
+                stakewars.safeTransferFrom(tempUser, user1, i, 1, "");
+            }
+        }
+        
+        uint256[] memory characters = stakewars.getCharactersOwnedByUser(user1);
+        assertEq(characters.length, 10);
+        
+        // Verify all characters 1-10 are present
+        for (uint256 i = 1; i <= 10; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < characters.length; j++) {
+                if (characters[j] == i) {
+                    found = true;
+                    break;
+                }
+            }
+            assertTrue(found, "Character not found in array");
+        }
+    }
+    
+    function test_GetCharactersOwnedByUser_MultipleUsers() public {
+        stakewars.mintCharacter(user1, 1);
+        stakewars.mintCharacter(user2, 2);
+        stakewars.mintCharacter(user3, 3);
+        
+        // User1 gets another character via paid mint
+        stakewars.mintChakra(user1);
+        vm.prank(user1);
+        stakewars.setApprovalForAll(address(stakewars), true);
+        vm.prank(user1);
+        stakewars.mintCharacterWithChakra(4, 100 * 10 ** CHAKRA_DECIMALS);
+        
+        uint256[] memory user1Characters = stakewars.getCharactersOwnedByUser(user1);
+        uint256[] memory user2Characters = stakewars.getCharactersOwnedByUser(user2);
+        uint256[] memory user3Characters = stakewars.getCharactersOwnedByUser(user3);
+        
+        assertEq(user1Characters.length, 2);
+        assertEq(user2Characters.length, 1);
+        assertEq(user3Characters.length, 1);
+        
+        // Verify user1 has characters 1 and 4
+        bool user1Has1 = false;
+        bool user1Has4 = false;
+        for (uint256 i = 0; i < user1Characters.length; i++) {
+            if (user1Characters[i] == 1) user1Has1 = true;
+            if (user1Characters[i] == 4) user1Has4 = true;
+        }
+        assertTrue(user1Has1);
+        assertTrue(user1Has4);
+        
+        // Verify user2 has character 2
+        assertEq(user2Characters[0], 2);
+        
+        // Verify user3 has character 3
+        assertEq(user3Characters[0], 3);
+    }
+    
+    function test_GetCharactersOwnedByUser_AfterTransfer() public {
+        stakewars.mintCharacter(user1, 1);
+        stakewars.mintCharacter(user2, 2);
+        
+        // Transfer character 2 from user2 to user1
+        vm.prank(user2);
+        stakewars.setApprovalForAll(user1, true);
+        vm.prank(user2);
+        stakewars.safeTransferFrom(user2, user1, 2, 1, "");
+        
+        uint256[] memory user1Characters = stakewars.getCharactersOwnedByUser(user1);
+        uint256[] memory user2Characters = stakewars.getCharactersOwnedByUser(user2);
+        
+        assertEq(user1Characters.length, 2);
+        assertEq(user2Characters.length, 0);
+        
+        // Verify user1 has both characters 1 and 2
+        bool user1Has1 = false;
+        bool user1Has2 = false;
+        for (uint256 i = 0; i < user1Characters.length; i++) {
+            if (user1Characters[i] == 1) user1Has1 = true;
+            if (user1Characters[i] == 2) user1Has2 = true;
+        }
+        assertTrue(user1Has1);
+        assertTrue(user1Has2);
+    }
 }
