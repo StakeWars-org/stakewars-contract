@@ -314,4 +314,32 @@ contract Stakewars is ERC1155, Ownable {
     function getBuffStatus(address user, uint256 characterId, uint256 buffId) external view returns (uint256 remainingUses) {
         return buffRemainingUses[user][characterId][buffId];
     }
+
+    /**
+     * @dev Get all character IDs owned by a user
+     * @param user The address to check
+     * @return characterIds Array of character IDs owned by the user
+     */
+    function getCharactersOwnedByUser(address user) external view returns (uint256[] memory characterIds) {
+        uint256 count = 0;
+        
+        // First pass: count how many characters the user owns
+        for (uint256 i = KAZAN; i <= SHIDEN; i++) {
+            if (balanceOf(user, i) > 0) {
+                count++;
+            }
+        }
+        
+        // Second pass: populate the array
+        characterIds = new uint256[](count);
+        uint256 index = 0;
+        for (uint256 i = KAZAN; i <= SHIDEN; i++) {
+            if (balanceOf(user, i) > 0) {
+                characterIds[index] = i;
+                index++;
+            }
+        }
+        
+        return characterIds;
+    }
 }
