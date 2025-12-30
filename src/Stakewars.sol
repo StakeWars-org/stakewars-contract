@@ -61,6 +61,41 @@ contract Stakewars is ERC1155, Ownable {
     // Mapping: address => characterId => buffId => remaining uses (0 means not owned or exhausted)
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public buffRemainingUses;
     
+    // Game result structures and mappings
+    struct GameResult {
+        bytes32 gameID;
+        address player1Address;
+        address player2Address;
+        uint8 winner; // 1 = player1, 2 = player2
+        address winnerAddress;
+        address loserAddress;
+        uint256 winnerChakra;
+        uint256 loserChakra;
+        uint256 winnerXP;
+        uint256 loserXP;
+        bytes32 player1Character;
+        bytes32 player2Character;
+    }
+    
+    // Mapping: gameID (bytes32) => GameResult (to track if game has been processed)
+    mapping(bytes32 => GameResult) public gameResults;
+    
+    // Mapping: address => wins count
+    mapping(address => uint256) public playerWins;
+    
+    // Mapping: address => losses count
+    mapping(address => uint256) public playerLosses;
+    
+    // Mapping: address => unclaimed chakra amount (in wei, 18 decimals)
+    mapping(address => uint256) public unclaimedChakra;
+    
+    // Mapping: gameID => address => whether player has claimed reward for this game
+    mapping(bytes32 => mapping(address => bool)) public hasClaimedGameReward;
+    
+    // Constants for chakra rewards
+    uint256 public constant WINNER_CHAKRA_REWARD = 50 * 10 ** CHAKRA_DECIMALS;
+    uint256 public constant LOSER_CHAKRA_REWARD = 20 * 10 ** CHAKRA_DECIMALS;
+    
     constructor() ERC1155("https://game.example/api/item/{id}.json") Ownable(msg.sender) {
         _initializeVillages();
         _initializeBuffs();
@@ -341,5 +376,83 @@ contract Stakewars is ERC1155, Ownable {
         }
         
         return characterIds;
+    }
+    
+    /**
+     * @dev Process game result data encoded from encodeGameResult function
+     * @param data Encoded game result data (ABI-encoded GameResult struct)
+     * @notice Decodes the data, updates state (wins/losses), and mints chakra to caller if they are winner/loser
+     * @notice If game ID already exists, only mints chakra to caller (doesn't update state again)
+     */
+    function processGameResult(bytes calldata data) external {
+        // Decode the game result data
+        GameResult memory result = abi.decode(data, (GameResult));
+        
+        // Check if game ID already exists
+        bool gameExists = gameResults[result.gameID].gameID != bytes32(0);
+        
+        if (!gameExists) {
+            // First time processing this game - update state
+            gameResults[result.gameID] = result;
+            
+            // Increment wins for winner
+            playerWins[result.winnerAddress]++;
+            
+            // Increment losses for loser
+            playerLosses[result.loserAddress]++;
+            
+            // Add unclaimed chakra rewards
+            unclaimedChakra[result.winnerAddress] += WINNER_CHAKRA_REWARD;
+            unclaimedChakra[result.loserAddress] += LOSER_CHAKRA_REWARD;
+        }
+        
+        // Mint chakra to caller if they are winner or loser and haven't claimed this game yet
+        if (msg.sender == result.winnerAddress && !hasClaimedGameReward[result.gameID][msg.sender]) {
+            require(unclaimedChakra[msg.sender] >= WINNER_CHAKRA_REWARD, "Insufficient unclaimed chakra");
+            // Mint 50 chakra to winner
+            _mint(msg.sender, CHAKRA, WINNER_CHAKRA_REWARD, "");
+            unclaimedChakra[msg.sender] -= WINNER_CHAKRA_REWARD;
+            hasClaimedGameReward[result.gameID][msg.sender] = true;
+        } else if (msg.sender == result.loserAddress && !hasClaimedGameReward[result.gameID][msg.sender]) {
+            require(unclaimedChakra[msg.sender] >= LOSER_CHAKRA_REWARD, "Insufficient unclaimed chakra");
+            // Mint 20 chakra to loser
+            _mint(msg.sender, CHAKRA, LOSER_CHAKRA_REWARD, "");
+            unclaimedChakra[msg.sender] -= LOSER_CHAKRA_REWARD;
+            hasClaimedGameReward[result.gameID][msg.sender] = true;
+        }
+    }
+    
+    /**
+     * @dev Claim unclaimed chakra rewards for the caller
+     * @notice Mints all available unclaimed chakra to the caller
+     */
+    function claimUnclaimedChakra() external {
+        uint256 amount = unclaimedChakra[msg.sender];
+        require(amount > 0, "No unclaimed chakra");
+        
+        // Reset unclaimed chakra before minting (prevent reentrancy)
+        unclaimedChakra[msg.sender] = 0;
+        
+        // Mint the unclaimed chakra
+        _mint(msg.sender, CHAKRA, amount, "");
+    }
+    
+    /**
+     * @dev Get unclaimed chakra amount for a player address
+     * @param player The address to check
+     * @return amount The amount of unclaimed chakra (in wei, 18 decimals)
+     */
+    function getUnclaimedChakra(address player) external view returns (uint256 amount) {
+        return unclaimedChakra[player];
+    }
+    
+    /**
+     * @dev Get wins and losses count for a player address
+     * @param player The address to check
+     * @return wins The number of wins for the player
+     * @return losses The number of losses for the player
+     */
+    function getPlayerWinsAndLosses(address player) external view returns (uint256 wins, uint256 losses) {
+        return (playerWins[player], playerLosses[player]);
     }
 }

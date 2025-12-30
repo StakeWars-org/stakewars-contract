@@ -864,4 +864,712 @@ contract StakewarsTest is Test {
         assertTrue(user1Has1);
         assertTrue(user1Has2);
     }
+    
+    // ============ Unit Tests: processGameResult ============
+    
+    function test_ProcessGameResult_FirstCall_Player1Wins() public {
+        bytes32 gameID = keccak256("game1");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        uint256 user1InitialWins = stakewars.playerWins(user1);
+        uint256 user2InitialLosses = stakewars.playerLosses(user2);
+        
+        vm.prank(user1);
+        stakewars.processGameResult(encodedData);
+        
+        // Check state was updated
+        assertEq(stakewars.playerWins(user1), user1InitialWins + 1);
+        assertEq(stakewars.playerLosses(user2), user2InitialLosses + 1);
+        
+        // Check game result was stored
+        (bytes32 storedGameID, address storedPlayer1, address storedPlayer2, uint8 storedWinner, address storedWinnerAddress, address storedLoserAddress, uint256 storedWinnerChakra, uint256 storedLoserChakra, uint256 storedWinnerXP, uint256 storedLoserXP, bytes32 storedPlayer1Char, bytes32 storedPlayer2Char) = stakewars.gameResults(gameID);
+        assertEq(storedGameID, gameID);
+        assertEq(storedWinnerAddress, user1);
+        assertEq(storedLoserAddress, user2);
+        
+        // Check winner got 50 chakra minted
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + stakewars.WINNER_CHAKRA_REWARD());
+        
+        // Check unclaimed chakra was set but winner's was claimed
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+        assertEq(stakewars.getUnclaimedChakra(user2), stakewars.LOSER_CHAKRA_REWARD());
+        
+        // Check claim status
+        assertTrue(stakewars.hasClaimedGameReward(gameID, user1));
+        assertFalse(stakewars.hasClaimedGameReward(gameID, user2));
+    }
+    
+    function test_ProcessGameResult_FirstCall_Player2Wins() public {
+        bytes32 gameID = keccak256("game2");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 2, // player2 wins
+            winnerAddress: user2,
+            loserAddress: user1,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        uint256 user2InitialChakra = stakewars.balanceOf(user2, 21);
+        uint256 user2InitialWins = stakewars.playerWins(user2);
+        uint256 user1InitialLosses = stakewars.playerLosses(user1);
+        
+        vm.prank(user2);
+        stakewars.processGameResult(encodedData);
+        
+        // Check state was updated
+        assertEq(stakewars.playerWins(user2), user2InitialWins + 1);
+        assertEq(stakewars.playerLosses(user1), user1InitialLosses + 1);
+        
+        // Check winner got 50 chakra minted
+        assertEq(stakewars.balanceOf(user2, 21), user2InitialChakra + stakewars.WINNER_CHAKRA_REWARD());
+        
+        // Check unclaimed chakra
+        assertEq(stakewars.getUnclaimedChakra(user2), 0);
+        assertEq(stakewars.getUnclaimedChakra(user1), stakewars.LOSER_CHAKRA_REWARD());
+        
+        // Check claim status
+        assertTrue(stakewars.hasClaimedGameReward(gameID, user2));
+        assertFalse(stakewars.hasClaimedGameReward(gameID, user1));
+    }
+    
+    function test_ProcessGameResult_SecondCall_LoserClaims() public {
+        bytes32 gameID = keccak256("game3");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        // First call by winner
+        vm.prank(user1);
+        stakewars.processGameResult(encodedData);
+        
+        uint256 user1WinsAfterFirst = stakewars.playerWins(user1);
+        uint256 user2LossesAfterFirst = stakewars.playerLosses(user2);
+        uint256 user2InitialChakra = stakewars.balanceOf(user2, 21);
+        
+        // Second call by loser - should not update state, just mint chakra
+        vm.prank(user2);
+        stakewars.processGameResult(encodedData);
+        
+        // Check state was not updated again
+        assertEq(stakewars.playerWins(user1), user1WinsAfterFirst);
+        assertEq(stakewars.playerLosses(user2), user2LossesAfterFirst);
+        
+        // Check loser got 20 chakra minted
+        assertEq(stakewars.balanceOf(user2, 21), user2InitialChakra + stakewars.LOSER_CHAKRA_REWARD());
+        
+        // Check unclaimed chakra is now 0 for both
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+        assertEq(stakewars.getUnclaimedChakra(user2), 0);
+        
+        // Check claim status
+        assertTrue(stakewars.hasClaimedGameReward(gameID, user1));
+        assertTrue(stakewars.hasClaimedGameReward(gameID, user2));
+    }
+    
+    function test_ProcessGameResult_DoubleClaim_Prevented() public {
+        bytes32 gameID = keccak256("game4");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        // First call by winner
+        vm.prank(user1);
+        stakewars.processGameResult(encodedData);
+        
+        uint256 user1ChakraAfterFirst = stakewars.balanceOf(user1, 21);
+        
+        // Try to claim again - should not mint more chakra
+        vm.prank(user1);
+        stakewars.processGameResult(encodedData);
+        
+        // Check chakra was not minted again
+        assertEq(stakewars.balanceOf(user1, 21), user1ChakraAfterFirst);
+    }
+    
+    function test_ProcessGameResult_ThirdPartyCaller() public {
+        bytes32 gameID = keccak256("game5");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        // Call by third party (not winner or loser) - should update state but not mint
+        vm.prank(user3);
+        stakewars.processGameResult(encodedData);
+        
+        // Check state was updated
+        assertEq(stakewars.playerWins(user1), 1);
+        assertEq(stakewars.playerLosses(user2), 1);
+        
+        // Check no chakra was minted to user3
+        assertEq(stakewars.balanceOf(user3, 21), 0);
+        
+        // Check unclaimed chakra is available for both players
+        assertEq(stakewars.getUnclaimedChakra(user1), stakewars.WINNER_CHAKRA_REWARD());
+        assertEq(stakewars.getUnclaimedChakra(user2), stakewars.LOSER_CHAKRA_REWARD());
+        
+        // Check claim status - neither has claimed
+        assertFalse(stakewars.hasClaimedGameReward(gameID, user1));
+        assertFalse(stakewars.hasClaimedGameReward(gameID, user2));
+    }
+    
+    // ============ Unit Tests: claimUnclaimedChakra ============
+    
+    function test_ClaimUnclaimedChakra_Success() public {
+        bytes32 gameID = keccak256("game6");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        // Process game result by third party (creates unclaimed chakra)
+        vm.prank(user3);
+        stakewars.processGameResult(encodedData);
+        
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        uint256 user1Unclaimed = stakewars.getUnclaimedChakra(user1);
+        
+        // User1 claims their unclaimed chakra
+        vm.prank(user1);
+        stakewars.claimUnclaimedChakra();
+        
+        // Check chakra was minted
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + user1Unclaimed);
+        
+        // Check unclaimed chakra is now 0
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+    }
+    
+    function test_ClaimUnclaimedChakra_NoUnclaimedChakra() public {
+        vm.prank(user1);
+        vm.expectRevert("No unclaimed chakra");
+        stakewars.claimUnclaimedChakra();
+    }
+    
+    function test_ClaimUnclaimedChakra_MultipleGames() public {
+        // Process multiple games to accumulate unclaimed chakra
+        bytes32 gameID1 = keccak256("game7");
+        Stakewars.GameResult memory result1 = Stakewars.GameResult({
+            gameID: gameID1,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes32 gameID2 = keccak256("game8");
+        Stakewars.GameResult memory result2 = Stakewars.GameResult({
+            gameID: gameID2,
+            player1Address: user1,
+            player2Address: user3,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user3,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Mizai")
+        });
+        
+        // Process both games
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result1));
+        
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result2));
+        
+        uint256 expectedUnclaimed = stakewars.WINNER_CHAKRA_REWARD() * 2;
+        assertEq(stakewars.getUnclaimedChakra(user1), expectedUnclaimed);
+        
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        
+        // Claim all unclaimed chakra
+        vm.prank(user1);
+        stakewars.claimUnclaimedChakra();
+        
+        // Check all chakra was minted
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + expectedUnclaimed);
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+    }
+    
+    // ============ Unit Tests: getUnclaimedChakra ============
+    
+    function test_GetUnclaimedChakra_NoUnclaimed() public {
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+    }
+    
+    function test_GetUnclaimedChakra_WithUnclaimed() public {
+        bytes32 gameID = keccak256("game9");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        // Process by third party
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result));
+        
+        assertEq(stakewars.getUnclaimedChakra(user1), stakewars.WINNER_CHAKRA_REWARD());
+        assertEq(stakewars.getUnclaimedChakra(user2), stakewars.LOSER_CHAKRA_REWARD());
+    }
+    
+    // ============ Unit Tests: getPlayerWinsAndLosses ============
+    
+    function test_GetPlayerWinsAndLosses_NoGames() public {
+        (uint256 wins, uint256 losses) = stakewars.getPlayerWinsAndLosses(user1);
+        assertEq(wins, 0);
+        assertEq(losses, 0);
+    }
+    
+    function test_GetPlayerWinsAndLosses_WithWins() public {
+        bytes32 gameID1 = keccak256("wins_game1");
+        Stakewars.GameResult memory result1 = Stakewars.GameResult({
+            gameID: gameID1,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes32 gameID2 = keccak256("wins_game2");
+        Stakewars.GameResult memory result2 = Stakewars.GameResult({
+            gameID: gameID2,
+            player1Address: user1,
+            player2Address: user3,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user3,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Mizai")
+        });
+        
+        // Process both games
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result1));
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result2));
+        
+        (uint256 wins, uint256 losses) = stakewars.getPlayerWinsAndLosses(user1);
+        assertEq(wins, 2);
+        assertEq(losses, 0);
+    }
+    
+    function test_GetPlayerWinsAndLosses_WithLosses() public {
+        bytes32 gameID1 = keccak256("losses_game1");
+        Stakewars.GameResult memory result1 = Stakewars.GameResult({
+            gameID: gameID1,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 2,
+            winnerAddress: user2,
+            loserAddress: user1,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes32 gameID2 = keccak256("losses_game2");
+        Stakewars.GameResult memory result2 = Stakewars.GameResult({
+            gameID: gameID2,
+            player1Address: user1,
+            player2Address: user3,
+            winner: 2,
+            winnerAddress: user3,
+            loserAddress: user1,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Mizai")
+        });
+        
+        // Process both games
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result1));
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result2));
+        
+        (uint256 wins, uint256 losses) = stakewars.getPlayerWinsAndLosses(user1);
+        assertEq(wins, 0);
+        assertEq(losses, 2);
+    }
+    
+    function test_GetPlayerWinsAndLosses_Mixed() public {
+        bytes32 gameID1 = keccak256("mixed_game1");
+        Stakewars.GameResult memory result1 = Stakewars.GameResult({
+            gameID: gameID1,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes32 gameID2 = keccak256("mixed_game2");
+        Stakewars.GameResult memory result2 = Stakewars.GameResult({
+            gameID: gameID2,
+            player1Address: user1,
+            player2Address: user3,
+            winner: 2,
+            winnerAddress: user3,
+            loserAddress: user1,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Mizai")
+        });
+        
+        bytes32 gameID3 = keccak256("mixed_game3");
+        Stakewars.GameResult memory result3 = Stakewars.GameResult({
+            gameID: gameID3,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        // Process all games
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result1));
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result2));
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result3));
+        
+        (uint256 wins, uint256 losses) = stakewars.getPlayerWinsAndLosses(user1);
+        assertEq(wins, 2);
+        assertEq(losses, 1);
+    }
+    
+    function test_GetPlayerWinsAndLosses_DifferentPlayers() public {
+        bytes32 gameID = keccak256("different_players_game");
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        vm.prank(user3);
+        stakewars.processGameResult(abi.encode(result));
+        
+        (uint256 user1Wins, uint256 user1Losses) = stakewars.getPlayerWinsAndLosses(user1);
+        (uint256 user2Wins, uint256 user2Losses) = stakewars.getPlayerWinsAndLosses(user2);
+        
+        assertEq(user1Wins, 1);
+        assertEq(user1Losses, 0);
+        assertEq(user2Wins, 0);
+        assertEq(user2Losses, 1);
+    }
+    
+    // ============ Integration Tests: Game Result Flow ============
+    
+    function test_Integration_FullGameResultFlow() public {
+        bytes32 gameID = keccak256("integration_game1");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1, // player1 wins
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        uint256 user1InitialWins = stakewars.playerWins(user1);
+        uint256 user2InitialLosses = stakewars.playerLosses(user2);
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        uint256 user2InitialChakra = stakewars.balanceOf(user2, 21);
+        
+        // Step 1: Winner processes game result
+        vm.prank(user1);
+        stakewars.processGameResult(encodedData);
+        
+        // Check state updates
+        assertEq(stakewars.playerWins(user1), user1InitialWins + 1);
+        assertEq(stakewars.playerLosses(user2), user2InitialLosses + 1);
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + stakewars.WINNER_CHAKRA_REWARD());
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+        assertEq(stakewars.getUnclaimedChakra(user2), stakewars.LOSER_CHAKRA_REWARD());
+        
+        // Step 2: Loser processes game result to claim their reward
+        vm.prank(user2);
+        stakewars.processGameResult(encodedData);
+        
+        assertEq(stakewars.balanceOf(user2, 21), user2InitialChakra + stakewars.LOSER_CHAKRA_REWARD());
+        assertEq(stakewars.getUnclaimedChakra(user2), 0);
+        
+        // Step 3: Verify game result is stored correctly
+        (bytes32 storedGameID, address storedPlayer1, address storedPlayer2, uint8 storedWinner, address storedWinnerAddress, address storedLoserAddress, uint256 storedWinnerChakra, uint256 storedLoserChakra, uint256 storedWinnerXP, uint256 storedLoserXP, bytes32 storedPlayer1Char, bytes32 storedPlayer2Char) = stakewars.gameResults(gameID);
+        assertEq(storedGameID, gameID);
+        assertEq(storedWinnerAddress, user1);
+        assertEq(storedLoserAddress, user2);
+        assertEq(uint256(storedWinner), 1);
+    }
+    
+    function test_Integration_ClaimViaClaimFunction() public {
+        bytes32 gameID = keccak256("integration_game2");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 2, // player2 wins
+            winnerAddress: user2,
+            loserAddress: user1,
+            winnerChakra: 100,
+            loserChakra: 50,
+            winnerXP: 10,
+            loserXP: 5,
+            player1Character: keccak256("Kazan"),
+            player2Character: keccak256("Shazan")
+        });
+        
+        bytes memory encodedData = abi.encode(result);
+        
+        // Process by third party (no immediate minting)
+        vm.prank(user3);
+        stakewars.processGameResult(encodedData);
+        
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        uint256 user2InitialChakra = stakewars.balanceOf(user2, 21);
+        
+        // Both players claim via claimUnclaimedChakra
+        vm.prank(user1);
+        stakewars.claimUnclaimedChakra();
+        
+        vm.prank(user2);
+        stakewars.claimUnclaimedChakra();
+        
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + stakewars.LOSER_CHAKRA_REWARD());
+        assertEq(stakewars.balanceOf(user2, 21), user2InitialChakra + stakewars.WINNER_CHAKRA_REWARD());
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+        assertEq(stakewars.getUnclaimedChakra(user2), 0);
+    }
+    
+    function test_Integration_MultipleGamesAccumulateUnclaimed() public {
+        // Create three games where user1 wins all
+        for (uint256 i = 0; i < 3; i++) {
+            bytes32 gameID = keccak256(abi.encodePacked("multi_game", i));
+            address opponent = i == 0 ? user2 : (i == 1 ? user3 : address(0x4));
+            
+            Stakewars.GameResult memory result = Stakewars.GameResult({
+                gameID: gameID,
+                player1Address: user1,
+                player2Address: opponent,
+                winner: 1,
+                winnerAddress: user1,
+                loserAddress: opponent,
+                winnerChakra: 100,
+                loserChakra: 50,
+                winnerXP: 10,
+                loserXP: 5,
+                player1Character: keccak256("Kazan"),
+                player2Character: keccak256("Shazan")
+            });
+            
+            // Process by third party (user1 doesn't claim immediately)
+            vm.prank(address(0x5));
+            stakewars.processGameResult(abi.encode(result));
+        }
+        
+        // Check user1 has accumulated unclaimed chakra from 3 wins
+        uint256 expectedUnclaimed = stakewars.WINNER_CHAKRA_REWARD() * 3;
+        assertEq(stakewars.getUnclaimedChakra(user1), expectedUnclaimed);
+        assertEq(stakewars.playerWins(user1), 3);
+        
+        // Claim all at once
+        uint256 user1InitialChakra = stakewars.balanceOf(user1, 21);
+        vm.prank(user1);
+        stakewars.claimUnclaimedChakra();
+        
+        assertEq(stakewars.balanceOf(user1, 21), user1InitialChakra + expectedUnclaimed);
+        assertEq(stakewars.getUnclaimedChakra(user1), 0);
+    }
+    
+    function test_Integration_GameResultDataAccuracy() public {
+        bytes32 gameID = keccak256("data_accuracy_game");
+        bytes32 player1Char = keccak256("Kazan");
+        bytes32 player2Char = keccak256("Shazan");
+        
+        Stakewars.GameResult memory result = Stakewars.GameResult({
+            gameID: gameID,
+            player1Address: user1,
+            player2Address: user2,
+            winner: 1,
+            winnerAddress: user1,
+            loserAddress: user2,
+            winnerChakra: 150,
+            loserChakra: 75,
+            winnerXP: 20,
+            loserXP: 10,
+            player1Character: player1Char,
+            player2Character: player2Char
+        });
+        
+        vm.prank(user1);
+        stakewars.processGameResult(abi.encode(result));
+        
+        // Verify all data is stored correctly (check in two parts to avoid stack too deep)
+        (bytes32 storedGameID, address storedPlayer1, address storedPlayer2, uint8 storedWinner, address storedWinnerAddress, address storedLoserAddress, uint256 storedWinnerChakra, uint256 storedLoserChakra, uint256 storedWinnerXP, uint256 storedLoserXP, bytes32 storedPlayer1Char, bytes32 storedPlayer2Char) = stakewars.gameResults(gameID);
+        assertEq(storedGameID, gameID);
+        assertEq(storedPlayer1, user1);
+        assertEq(storedPlayer2, user2);
+        assertEq(uint256(storedWinner), 1);
+        assertEq(storedWinnerAddress, user1);
+        assertEq(storedLoserAddress, user2);
+        assertEq(storedWinnerChakra, 150);
+        assertEq(storedLoserChakra, 75);
+        assertEq(storedWinnerXP, 20);
+        assertEq(storedLoserXP, 10);
+        assertEq(storedPlayer1Char, player1Char);
+        assertEq(storedPlayer2Char, player2Char);
+    }
 }
